@@ -9,8 +9,8 @@ E
 %
 	encounter"encounter_idJ
 feast_repo
-ö–ŞÓÈĞ‹Ìö–ŞÓÈĞ‹Ì1"$acdc1da5-6f80-4c43-bd8c-89417e9bcda2* ¢ŞÓØÄØæ2ö
-Õ
+ö–ŞÓÈĞ‹Ìö–ŞÓÈĞ‹Ì1"$8108ecbd-230c-4537-8ace-f87eb001d0a0*á¨ŞÓàÏ¹«2€
+İ
 diabetes_features_v1
 feast_repo	encounter"
 time_in_hospital"
@@ -29,10 +29,10 @@ feast_repo	encounter"
 
 race_white"
 
-gender"
-age2€†°–:©event_timestampZ data/diabetes_features.parquetŠ1feast.infra.offline_stores.file_source.FileSource¢data/diabetes_features.parquet’ö–ŞÓØ²õ‹"ö–ŞÓà×‰Ë@b
-encounter_id’latest
-ö–ŞÓÀ„ÁÌö–ŞÓÀ„ÁÌRæ
+gender"
+age_ordinal2€†°–:©event_timestampZ data/diabetes_features.parquetŠ1feast.infra.offline_stores.file_source.FileSource¢data/diabetes_features.parquet’á¨ŞÓøÅö‰"á¨ŞÓøÅö‰@b
+encounter_id’latest
+ö–ŞÓÀ„ÁÌá¨ŞÓø—Û¥ Ræ
 ã
 ,feast.infra.online_stores.sqlite.SqliteTable"²
 c:\Users\nelse\Documents\U Chicago\Machine Learning Operations\Final Project\ml-ops-final-group-3\feast_repo\feature_repo\data\online_store.dbfeast_repo_diabetes_features_v1b¶event_timestampZ data/diabetes_features.parquetŠ1feast.infra.offline_stores.file_source.FileSource¢data/diabetes_features.parquetª
@@ -40,7 +40,7 @@ feast_repo’ö–ŞÓØ²õ‹"ö–ŞÓà×‰ËŠ,
 
 
 feast_repo
-ö–ŞÓÀı©ö–ŞÓÀı©’à
+ö–ŞÓÀı©ö–ŞÓÀı©’Ì
 İ
 diabetes_features_v1
 feast_repo"feature_view*ö
@@ -67,3 +67,29 @@ race_white"
 age2€†°–:©event_timestampZ data/diabetes_features.parquetŠ1feast.infra.offline_stores.file_source.FileSource¢data/diabetes_features.parquet’ö–ŞÓØ²õ‹"ö–ŞÓà×‰Ë@b
 encounter_id’latest
 ö–ŞÓÀ„ÁÌö–ŞÓÀ„ÁÌ2ö–ŞÓÈ–ÎB$65027700-3c29-45cd-9041-12ff59095257
+é
+diabetes_features_v1
+feast_repo"feature_view*€
+İ
+diabetes_features_v1
+feast_repo	encounter"
+time_in_hospital"
+num_lab_procedures"
+num_procedures"
+num_medications"
+number_outpatient"
+number_emergency"
+number_inpatient"
+number_diagnoses"
+admission_type_id"
+discharge_disposition_id"
+admission_source_id"
+diag_1_category"
+medical_specialty_grouped"
+
+race_white"
+
+gender"
+age_ordinal2€†°–:©event_timestampZ data/diabetes_features.parquetŠ1feast.infra.offline_stores.file_source.FileSource¢data/diabetes_features.parquet’á¨ŞÓøÅö‰"á¨ŞÓøÅö‰@b
+encounter_id’latest
+ö–ŞÓÀ„ÁÌá¨ŞÓø—Û¥ 2á¨ŞÓà»–«B$2b6f249b-0a29-45f2-b6c0-a38ad9986406

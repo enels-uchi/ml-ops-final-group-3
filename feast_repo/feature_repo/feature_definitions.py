@@ -30,7 +30,7 @@ diabetes_features_v1 = FeatureView(
         Field(name="medical_specialty_grouped", dtype=String),
         Field(name="race_white", dtype=Int64),
         Field(name="gender", dtype=String),
-        Field(name="age", dtype=String),
+        Field(name="age_ordinal", dtype=Int64),
     ],
     source=diabetes_source,
 )

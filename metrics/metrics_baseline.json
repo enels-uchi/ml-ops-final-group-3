@@ -1,0 +1,16 @@
+{
+  "model": "XGBoost baseline (default params)",
+  "f1_score": 0.436,
+  "auc_roc": 0.648,
+  "precision": 0.563,
+  "recall": 0.355,
+  "accuracy": 0.625,
+  "train_shape": [
+    55989,
+    36
+  ],
+  "test_shape": [
+    13998,
+    36
+  ]
+}
