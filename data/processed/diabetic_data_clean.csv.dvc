@@ -1,0 +1,5 @@
+outs:
+- md5: 77a52fd420263d3fdfc1d08879b224e4
+  size: 12561503
+  hash: md5
+  path: diabetic_data_clean.csv
