@@ -1,0 +1,24 @@
+{
+  "model": "CatBoost Classifier (PyCaret AutoML, default hyperparameters)",
+  "f1_score": 0.4323,
+  "auc_roc": 0.6574,
+  "precision": 0.5931,
+  "recall": 0.3401,
+  "accuracy": 0.6361,
+  "train_shape": [
+    55989,
+    36
+  ],
+  "test_shape": [
+    13998,
+    36
+  ],
+  "tuning_note": "25-iteration random hyperparameter search did not beat CatBoost's default hyperparameters (PyCaret's choose_better returned the untuned model).",
+  "mlflow_registry": {
+    "model_name": "diabetes-readmission-catboost",
+    "version": 1,
+    "semantic_version": "1.0.0",
+    "alias": "champion",
+    "tracking_uri": "sqlite:///mlflow.db"
+  }
+}
