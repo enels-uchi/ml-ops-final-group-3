@@ -3,3 +3,12 @@ __pycache__/
 *.pyc
 .ipynb_checkpoints/
 data/raw/
+venv-automl/
+mlflow.db
+mlruns/
+outputs/
+catboost_info/
+logs.log
+notebooks/catboost_info/
+notebooks/logs.log
+notebooks/mlruns/
