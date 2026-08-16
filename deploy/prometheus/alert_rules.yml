@@ -1,14 +1,14 @@
 # Alert rules for the readmission serving stack.
 #
 # Thresholds are calibrated against the numbers in monitoring/reports/DRIFT_SUMMARY.md, where
-# the clean reference sits at drift_share 0.0 / 0 drifted columns / predicted-positive 0.257,
+# the clean reference sits at drift_share 0.0 / 0 drifted columns / predicted-positive 0.244,
 # and the four simulated drift scenarios land at:
 #
 #   scenario        drifted cols   drift share   pred+ ratio
-#   column_swap        4/18           0.222         0.255
-#   dist_shift         5/18           0.278         0.953
-#   out_of_bounds      5/18           0.278         0.004
-#   schema_change      3/18           0.167         0.218
+#   column_swap        4/18           0.222         0.161
+#   dist_shift         5/18           0.278         0.921
+#   out_of_bounds      5/18           0.278         0.059
+#   schema_change      3/18           0.167         0.205
 #
 # So DriftedColumnsDetected (>=3 columns) catches all four, while PredictionDistributionShift
 # fires only on dist_shift and out_of_bounds — the two that actually move the model's output.
@@ -66,7 +66,7 @@ groups:
   - name: prediction-quality
     rules:
       - alert: PredictionDistributionShift
-        # Clean baseline is 0.257. A batch outside [0.15, 0.40] means the model's output
+        # Clean baseline is 0.244. A batch outside [0.15, 0.40] means the model's output
         # distribution moved far enough that the input is almost certainly not production-like.
         #
         # The `predict_requests_total > 0` guard matters: prometheus_client initialises every
@@ -82,7 +82,7 @@ groups:
           signal: output-drift
         annotations:
           summary: "Predicted-positive ratio at {{ $value | humanizePercentage }}"
-          description: "Expected ~25.7% (clean test baseline). A swing this large indicates corrupted input or concept drift."
+          description: "Expected ~24.4% (clean test baseline). A swing this large indicates corrupted input or concept drift."
 
       - alert: HighPredictionLatency
         expr: histogram_quantile(0.95, rate(prediction_latency_seconds_bucket[1m])) > 2

@@ -1,0 +1,15 @@
+{
+  "model": "CatBoost Classifier (PyCaret AutoML champion)",
+  "exported_from": "models/model_automl.pkl",
+  "mlflow_registry": {
+    "model_name": "diabetes-readmission-catboost",
+    "version": 1,
+    "semantic_version": "1.0.0",
+    "alias": "champion",
+    "tracking_uri": "sqlite:///mlflow.db"
+  },
+  "n_features_in": 16,
+  "n_features_out": 35,
+  "verified_max_prob_diff": 0.0,
+  "note": "Parameters extracted from the PyCaret pipeline and replayed by src/champion_preprocess.py; verified to reproduce pipeline.predict_proba exactly."
+}

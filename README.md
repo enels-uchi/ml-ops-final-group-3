@@ -246,11 +246,43 @@ pickle or pull the registered champion straight out of the MLflow Model Registry
 | `MODEL_VERSION` | `baseline-1.0.0` | version string on `/health` and the `model_info` metric |
 | `REQUEST_LOG` | `monitoring/logs/requests.csv` | where served rows are appended |
 
-We ship the **XGBoost baseline** as the served model: it is a statistical tie with the registered
-CatBoost champion (AUC 0.648 vs 0.657, F1 0.436 vs 0.432) while being far lighter to deploy —
-`models/model_automl.pkl` is a PyCaret pipeline that requires PyCaret installed to even unpickle,
-which would roughly quintuple the image and pin it to Python 3.11. Registry loading is wired up
-and documented above for when that trade-off changes.
+### The served model is the AutoML champion
+
+The container serves **CatBoost** — the model PyCaret's AutoML search selected and the one
+registered in MLflow as `diabetes-readmission-catboost` v1, alias `champion`, semantic version
+1.0.0. `GET /health` echoes those registry details so the deployment is traceable to the
+registry entry.
+
+It is **not** loaded from `models/model_automl.pkl` directly, because that file is a PyCaret
+pipeline: unpickling it requires PyCaret importable, PyCaret does not support the container's
+Python 3.12, and its fitted transformers are scikit-learn 1.4 / category_encoders objects that
+are unsafe to unpickle under the container's scikit-learn 1.9.
+
+Instead `src/export_champion.py` reads that pipeline and flattens it into `models/champion/`:
+
+| File | What it is |
+|---|---|
+| `catboost_model.cbm` | the CatBoost model in CatBoost's own version-stable binary format |
+| `preprocessing.json` | the pipeline's four fitted transforms as plain parameters |
+| `metadata.json` | registry coordinates + the verification result |
+
+`src/champion_preprocess.py` replays those four transforms — mean imputation, most-frequent
+imputation, ordinal encoding of `gender`, one-hot encoding of the two remaining categoricals —
+in pure pandas, producing the same 35 columns CatBoost was fitted on. The container therefore
+needs only pandas + catboost.
+
+**The export is verified, not assumed.** `export_champion.py` scores all 69,987 rows through both
+the original pipeline and the replay and refuses to write the artifact unless the probabilities
+agree to within 1e-9. The current export reproduces the pipeline **exactly** — maximum difference
+`0.000e+00`.
+
+Re-generate it (needs the PyCaret environment, Python 3.11) with:
+
+```bash
+python src/export_champion.py
+```
+
+Set `MODEL_KIND=baseline` to serve the XGBoost baseline from the same image instead.
 
 ## Containerized Deployment (Docker + Docker Compose)
 
@@ -319,7 +351,7 @@ python monitoring/drift_simulation.py     # once, to create the drifted CSVs
 python deploy/demo_traffic.py             # ~5 min: healthy -> ramp -> fully drifted
 ```
 
-It runs in three phases (clean traffic near the 0.257 baseline → a linear 0–100% blend of
+It runs in three phases (clean traffic near the 0.244 baseline → a linear 0–100% blend of
 drifted rows → fully corrupted) and prints the predicted-positive ratio per batch with an inline
 bar, so the trend is visible in the terminal as well as on the dashboard. `--scenario
 out_of_bounds` makes the ratio collapse toward 0.00 instead of climbing to 0.95;
@@ -347,10 +379,29 @@ API_URL=http://localhost:8000 python monitoring/anomaly_verification.py
 ```
 
 **1. Baseline validation** — `python monitoring/baseline_validation.py`
-Pushes the clean test set through `/predict` and asserts the live metrics reproduce
-`metrics/metrics_baseline.json` (F1 0.436 / AUC 0.648, exact match), then writes a combined
-Evidently report of *clean train vs clean test* (`monitoring/reports/00_baseline.html`) to
-confirm **no drift** — the healthy reference.
+Pushes the clean test set through `/predict` and asserts the live metrics reproduce the deployed
+model's certified figures exactly, then writes a combined Evidently report of *clean train vs
+clean test* (`monitoring/reports/00_baseline.html`) to confirm **no drift** — the healthy
+reference.
+
+Which file it compares against follows the deployed model, read from `/health`:
+
+| Deployed | Reference | Values |
+|---|---|---|
+| `baseline` (XGBoost) | `metrics/metrics_baseline.json` | F1 0.436 / AUC 0.648 |
+| `champion` (CatBoost) | `metrics/metrics_deployment.json` | F1 0.509 / AUC 0.736 |
+
+⚠️ **The champion's deployment figures are not comparable to `metrics_automl.json`** (F1 0.4323 /
+AUC 0.6574). Those AutoML numbers are PyCaret's 10-fold cross-validation means over its own
+training split, whereas these are a single evaluation on `train_baseline.py`'s held-out split.
+PyCaret partitions the data itself, so the two splits do not coincide and part of this test set
+was seen during the champion's training — meaning these figures are optimistic as a
+generalisation estimate. They exist to certify **deployment integrity**: the container must
+reproduce, to three decimals, the numbers the model was certified at. The same caveat is written
+into `metrics_deployment.json` itself.
+
+Re-certify after changing the deployed model with
+`python monitoring/baseline_validation.py --record`.
 
 **2. Drift simulation** — `python monitoring/drift_simulation.py`
 Writes four artificially corrupted copies of the test set to `monitoring/drifted/`:
@@ -376,7 +427,7 @@ browser. The scripts also run standalone against a local uvicorn process (no Doc
 **Live dashboard & automated alerting.** When the compose stack is running, the drift results the
 scripts push to `POST /internal/drift` are scraped by Prometheus within 5s and land on the Grafana
 dashboard at http://localhost:3000/d/readmission-monitoring — drift status, drifted-column count,
-drift share, predicted-positive ratio against the 0.257 clean baseline, throughput and p50/p95
+drift share, predicted-positive ratio against the 0.244 clean baseline, throughput and p50/p95
 latency. Prometheus evaluates `deploy/prometheus/alert_rules.yml` over the same series
 (http://localhost:9090/alerts):
 
@@ -385,7 +436,7 @@ latency. Prometheus evaluates `deploy/prometheus/alert_rules.yml` over the same 
 | `DriftedColumnsDetected` | `drifted_columns_total >= 3` | all four drift scenarios |
 | `DataDriftShareHigh` | `data_drift_share > 0.15` | `column_swap`, `dist_shift`, `out_of_bounds`, `schema_change` (0.167–0.278) |
 | `DatasetDriftDetected` | `drift_detected == 1` | Evidently's dataset-level verdict (≥50% of columns) |
-| `PredictionDistributionShift` | ratio outside `[0.15, 0.40]` | `dist_shift` (0.953) and `out_of_bounds` (0.004) |
+| `PredictionDistributionShift` | ratio outside `[0.15, 0.40]` | `dist_shift` (0.921) and `out_of_bounds` (0.059) |
 | `InferenceAPIDown` | `up == 0` for 15s | container crash / unreachable service |
 | `HighPredictionLatency` | p95 > 2s | serving degradation |
 

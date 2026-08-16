@@ -17,6 +17,10 @@ scikit-learn==1.9.0
 # CUDA/NCCL wheels the GPU build drags in (~250 MB compressed). Inference here is CPU-only, and
 # the pickle written by plain xgboost==3.4.0 loads unchanged.
 xgboost-cpu==3.4.0
+# The served model: the AutoML/MLflow champion is a CatBoost classifier, loaded from CatBoost's
+# own .cbm format (version-stable, unlike a pickle) by src/serve_api.py. xgboost stays because
+# MODEL_KIND=baseline can still serve the XGBoost baseline from the same image.
+catboost==1.2.10
 fastapi==0.141.1
 uvicorn==0.34.0
 prometheus-client==0.24.1

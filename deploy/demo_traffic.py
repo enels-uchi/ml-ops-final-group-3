@@ -7,7 +7,7 @@ arriving as a moving curve rather than a jump.
 
 Three phases:
 
-  1. HEALTHY  — clean test rows only. Predicted-positive ratio holds near the 0.257 baseline.
+  1. HEALTHY  — clean test rows only. Predicted-positive ratio holds near the 0.244 baseline.
   2. RAMP     — clean rows are progressively swapped for drifted ones (0% -> 100%). The ratio
                 climbs smoothly, which is what "concept drift creeping in" actually looks like.
   3. DRIFTED  — fully corrupted traffic. Ratio pinned at its extreme, alerts firing.

@@ -110,7 +110,8 @@ docker compose ps
 
 **Tab 1, Swagger.** Expand **POST /predict** → Try it out → paste from `demo_request.json` → Execute.
 
-> "This is the live service. Let's send it two patients.
+> "This is the live service — it's serving the CatBoost model our AutoML search selected, the one
+> registered in MLflow as the champion. Let's send it two patients.
 >
 > Both are real records from our test data. The first is a fairly ordinary hospital stay. The
 > second is a similar patient — but this one has been admitted six times before, and been to the
@@ -118,10 +119,10 @@ docker compose ps
 
 *Execute. Point at the two numbers.*
 
-> "Twenty-seven percent for the first. Ninety-eight percent for the second.
+> "Thirty-three percent for the first. Ninety-two percent for the second.
 >
-> How many times someone's been admitted before is the strongest signal the model has, and you can
-> see how hard it pushes the risk up. That's the product — a doctor could look at this at
+> Prior admissions and emergency visits are among the strongest signals the model has, and you can
+> see how hard they push the risk up. That's the product — a doctor could look at this at
 > discharge and decide who needs a follow-up before they go home."
 
 ---
@@ -137,21 +138,21 @@ python monitoring/baseline_validation.py
 
 > "Two patients doesn't prove much though. So this is the real check.
 >
-> It takes our whole test set — almost fourteen thousand records the model has never seen — sends
-> every one of them through the running container, and compares the results against the scores we
-> got back when we trained it."
+> It takes our whole test set — almost fourteen thousand held-out records — sends every one of
+> them through the running container, and compares the results against the scores this model was
+> certified at when we deployed it."
 
 *Takes about 10 seconds. This is what appears:*
 
 ```
-[baseline] API health: {'status': 'ok', 'model': 'XGBClassifier', ...}
+[baseline] API health: {'status': 'ok', 'model': 'CatBoostClassifier', ...}
 [baseline] clean test set: (13998, 16)
 
-[baseline] Live API vs recorded training metrics:
-  f1_score   live=0.436  recorded=0.436  Δ=0.000  OK      <-- point here
-  auc_roc    live=0.648  recorded=0.648  Δ=0.000  OK
-  precision  live=0.563  recorded=0.563  Δ=0.000  OK
-  recall     live=0.355  recorded=0.355  Δ=0.000  OK
+[baseline] Live API vs certified metrics (metrics/metrics_deployment.json):
+  f1_score   live=0.509  recorded=0.509  Δ=0.000  OK      <-- point here
+  auc_roc    live=0.736  recorded=0.736  Δ=0.000  OK
+  precision  live=0.680  recorded=0.680  Δ=0.000  OK
+  recall     live=0.407  recorded=0.407  Δ=0.000  OK
 
 [baseline] Drift (clean train vs clean test): drifted_cols=0/18 share=0.000 dataset_drift=False
 [baseline] Combined drift + performance report -> monitoring/reports/00_baseline.html
@@ -170,7 +171,7 @@ python monitoring/baseline_validation.py
 *Then say:*
 
 > "Zero difference, on every metric. So the model inside the container is exactly the model we
-> trained — nothing got lost or changed along the way.
+> certified — nothing got lost or changed on the way into the container.
 >
 > It also checks whether this clean data looks any different from the training data. It doesn't.
 > And that matters, because this run becomes our reference point — the picture of *normal* that
@@ -222,7 +223,7 @@ stays red for the rest of the run.]*
 
 *[~55s in, line near the top]*
 
-> "Ninety-five percent now. It's flagging almost every patient as high risk, which is useless to
+> "Over ninety percent now. It's flagging almost every patient as high risk, which is useless to
 > a doctor. But from inside the API, the requests still all look completely fine."
 
 ---
@@ -299,6 +300,11 @@ The only reliable reset — it wipes Prometheus history so the graphs start empt
 - **If you run long,** trim Part 3's middle paragraph. Never trim Part 1.
 - **Individual contributions** are stated during the live presentation, per the assignment — this
   video stays on the product.
+- **If asked why these numbers differ from the AutoML slide** (0.509 / 0.736 here vs 0.432 / 0.657
+  there): the slide reports PyCaret's 10-fold cross-validation means, and PyCaret splits the data
+  itself rather than reusing `train_baseline.py`'s split. The two are measured differently and are
+  not directly comparable. `metrics/metrics_deployment.json` states this in its `caveat` field.
+  Have that answer ready — it is the most likely question from the instructor.
 - **Live numbers vs. the offline reports.** Both are Evidently with the same configuration, but
   the in-container monitor sees the 16 input features (4 drift) while the offline run also sees
   the prediction and the target columns, 18 in total (5 drift). Same conclusion, different

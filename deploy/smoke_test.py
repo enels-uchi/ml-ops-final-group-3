@@ -132,9 +132,26 @@ def main() -> int:
     health = wait_for_health()
     results.append(check(health.get("status") == "ok", "/health status ok", json.dumps(health)))
     results.append(check(bool(health.get("model")), "model loaded", health.get("model", "none")))
+    # Feature count depends on which model is served: the CatBoost champion's PyCaret
+    # preprocessing yields 35 columns, the XGBoost baseline's get_dummies yields 36.
+    expected_features = {"champion": 35, "baseline": 36}.get(health.get("model_kind"))
     results.append(
-        check(health.get("n_features", 0) == 36, "36 one-hot features", str(health.get("n_features")))
+        check(
+            health.get("n_features") == expected_features,
+            f"{expected_features} engineered features ({health.get('model_kind')})",
+            str(health.get("n_features")),
+        )
     )
+    if health.get("model_kind") == "champion":
+        registry = health.get("mlflow_registry") or {}
+        results.append(
+            check(
+                registry.get("alias") == "champion" and bool(registry.get("model_name")),
+                "serving the MLflow-registered champion",
+                f"{registry.get('model_name')} v{registry.get('version')} "
+                f"(semantic {registry.get('semantic_version')})",
+            )
+        )
 
     # --- 2. predictions ------------------------------------------------------------------
     batch = [FULL_RECORD, HIGH_RISK_RECORD, PARTIAL_RECORD]

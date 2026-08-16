@@ -1,7 +1,7 @@
 {
   "uid": "readmission-monitoring",
   "title": "Model Serving & Drift Monitoring",
-  "description": "Live view of the containerized readmission inference API: serving throughput, latency, and the drift signals pushed by monitoring/anomaly_verification.py. Clean-baseline reference values come from monitoring/reports/DRIFT_SUMMARY.md (predicted-positive ratio 0.257, zero drifted columns).",
+  "description": "Live view of the containerized readmission inference API: serving throughput, latency, and the drift signals pushed by monitoring/anomaly_verification.py. Clean-baseline reference values come from monitoring/reports/DRIFT_SUMMARY.md (predicted-positive ratio 0.244, zero drifted columns).",
   "tags": ["mlops", "drift", "readmission"],
   "timezone": "browser",
   "schemaVersion": 39,
@@ -154,7 +154,7 @@
       "id": 4,
       "type": "stat",
       "title": "Predicted-positive ratio",
-      "description": "Share of readmit predictions in the most recent batch. Clean-test baseline is 0.257; the alert fires outside [0.15, 0.40].",
+      "description": "Share of readmit predictions in the most recent batch. Clean-test baseline is 0.244 for the CatBoost champion; the alert fires outside [0.15, 0.40].",
       "gridPos": { "h": 4, "w": 4, "x": 16, "y": 0 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
@@ -219,7 +219,7 @@
       "id": 6,
       "type": "timeseries",
       "title": "Predicted-positive ratio vs. clean baseline",
-      "description": "Output drift. Each run of monitoring/anomaly_verification.py appears as a step; the dashed line is the 0.257 clean-test baseline and the shaded thresholds mark the alerting band.",
+      "description": "Output drift. Each run of monitoring/anomaly_verification.py appears as a step; the dashed line is the 0.244 clean-test baseline and the shaded thresholds mark the alerting band.",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
@@ -231,8 +231,8 @@
         },
         {
           "refId": "B",
-          "expr": "0.257",
-          "legendFormat": "clean baseline (0.257)",
+          "expr": "0.244",
+          "legendFormat": "clean baseline (0.244)",
           "datasource": { "type": "prometheus", "uid": "prometheus" }
         }
       ],
@@ -263,7 +263,7 @@
         },
         "overrides": [
           {
-            "matcher": { "id": "byName", "options": "clean baseline (0.257)" },
+            "matcher": { "id": "byName", "options": "clean baseline (0.244)" },
             "properties": [
               { "id": "custom.lineStyle", "value": { "fill": "dash", "dash": [8, 8] } },
               { "id": "custom.fillOpacity", "value": 0 },

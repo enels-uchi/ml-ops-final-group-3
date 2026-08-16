@@ -32,11 +32,11 @@ services:
     ports:
       - "8000:8000"
     environment:
-      # Which model to serve. Swap MODEL_PATH for models/model_automl.pkl, or set
-      # MLFLOW_MODEL_URI=models:/diabetes-readmission-catboost@champion together with
-      # MLFLOW_TRACKING_URI to serve the registered champion straight from the registry.
-      MODEL_PATH: models/model_baseline.pkl
-      MODEL_VERSION: baseline-1.0.0
+      # Serve the AutoML/MLflow-registered champion (CatBoost, diabetes-readmission-catboost v1,
+      # semantic 1.0.0), exported to models/champion/ by src/export_champion.py.
+      # Set MODEL_KIND=baseline to serve the XGBoost baseline from the same image instead.
+      MODEL_KIND: champion
+      MODEL_VERSION: catboost-champion-1.0.0
       REQUEST_LOG: monitoring/logs/requests.csv
     volumes:
       # Bind-mounted so the request log survives `docker compose down` and can be inspected

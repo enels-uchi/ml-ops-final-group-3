@@ -1,4 +1,4 @@
-"""FastAPI serving app for the XGBoost baseline readmission model.
+"""FastAPI serving app for the diabetes readmission model.
 
 Endpoints
 ---------
@@ -10,20 +10,24 @@ POST /internal/drift      -> monitoring scripts push drift results here so they 
 Run:  venv/bin/uvicorn src.serve_api:app --port 8000    (from the repo root)
       docker compose up --build                        (containerized, see deploy/ + README)
 
-The model was trained on 36 one-hot columns (see models/model_baseline.pkl booster feature
-names). Requests carry the 16 RAW features; this app reproduces the exact get_dummies + align
-used at train time (src/train_baseline.py) so serving preprocessing matches training.
+Requests always carry the 16 RAW features; the app reproduces the model's own training-time
+preprocessing so serving can never silently diverge from training.
 
-Which model gets served is configured by environment variable, so the same image can serve a
-local pickle or a model pulled straight out of the MLflow Model Registry:
+Two model kinds are supported, selected by MODEL_KIND:
 
-    MODEL_PATH        local pickle path        (default: models/model_baseline.pkl)
-    MLFLOW_MODEL_URI  registry/run URI         (e.g. models:/diabetes-readmission-catboost@champion)
-    MLFLOW_TRACKING_URI  tracking backend      (e.g. sqlite:///mlflow.db, http://mlflow:5000)
-    MODEL_VERSION     version string reported on /health and in Prometheus labels
+  champion (default)  The AutoML/MLflow-registered CatBoost — `diabetes-readmission-catboost`
+                      v1, alias `champion`, semantic version 1.0.0. Loaded from the flattened
+                      export in models/champion/ (see src/export_champion.py), which replays the
+                      PyCaret pipeline's 4 transforms into the 35 columns CatBoost was fitted on.
+  baseline            The XGBoost baseline pickle, whose 16 raw features are expanded to 36
+                      one-hot columns by get_dummies + align, mirroring src/train_baseline.py.
 
-MLFLOW_MODEL_URI takes precedence when set. Registry loading uses the flavour-native loader
-(not pyfunc) so the returned estimator still exposes `predict_proba`, which /predict needs.
+    MODEL_KIND        "champion" | "baseline"          (default: champion)
+    CHAMPION_DIR      exported champion directory      (default: models/champion)
+    MODEL_PATH        baseline pickle path             (default: models/model_baseline.pkl)
+    MLFLOW_MODEL_URI  registry/run URI, baseline kind  (e.g. models:/name@champion)
+    MLFLOW_TRACKING_URI  tracking backend              (e.g. sqlite:///mlflow.db)
+    MODEL_VERSION     version string on /health and the Prometheus model_info label
 """
 import json
 import os
@@ -48,11 +52,18 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from train_baseline import FEATURE_COLS, CATEGORICAL_COLS  # single source of truth
 from drift_detector import DriftDetector
 
+# Which model this container serves.
+#   "champion" -> the AutoML/MLflow-registered CatBoost, exported by src/export_champion.py
+#   "baseline" -> the XGBoost baseline pickle
+MODEL_KIND = os.environ.get("MODEL_KIND", "champion").strip().lower()
+CHAMPION_DIR = os.environ.get("CHAMPION_DIR", "models/champion")
+
 MODEL_PATH = os.environ.get("MODEL_PATH", "models/model_baseline.pkl")
 MLFLOW_MODEL_URI = os.environ.get("MLFLOW_MODEL_URI", "").strip()
 FEATURE_COLUMNS_PATH = os.environ.get("FEATURE_COLUMNS_PATH", "models/feature_columns.json")
 REQUEST_LOG = os.environ.get("REQUEST_LOG", "monitoring/logs/requests.csv")
-MODEL_VERSION = os.environ.get("MODEL_VERSION", "baseline-1.0.0")
+_DEFAULT_VERSION = "catboost-champion-1.0.0" if MODEL_KIND == "champion" else "baseline-1.0.0"
+MODEL_VERSION = os.environ.get("MODEL_VERSION", _DEFAULT_VERSION)
 
 # Online drift detection: reference sample baked into the image by src/build_drift_reference.py.
 DRIFT_REFERENCE_PATH = os.environ.get("DRIFT_REFERENCE_PATH", "models/drift_reference.csv")
@@ -94,6 +105,35 @@ def _load_from_registry(uri: str):
         mlflow.set_tracking_uri(tracking_uri)
     print(f"[serve_api] Loading registered model from MLflow: {uri}")
     return mlflow.sklearn.load_model(uri)
+
+
+def _load_champion():
+    """Load the exported AutoML champion: CatBoost model + its replayed preprocessing.
+
+    `src/export_champion.py` flattens the registered PyCaret pipeline into a CatBoost binary plus
+    a JSON description of its four transforms, verified to reproduce the pipeline's probabilities
+    exactly. That lets the container serve the registered champion without PyCaret, which cannot
+    run on this image's Python version anyway.
+    """
+    from catboost import CatBoostClassifier  # lazy: only the champion path needs catboost
+    from champion_preprocess import ChampionPreprocessor
+
+    directory = Path(CHAMPION_DIR)
+    if not directory.exists():
+        raise RuntimeError(
+            f"MODEL_KIND=champion but {directory} is missing. Generate it with "
+            f"`python src/export_champion.py` in the PyCaret environment."
+        )
+    model = CatBoostClassifier()
+    model.load_model(str(directory / "catboost_model.cbm"))
+    preprocessor = ChampionPreprocessor.from_dir(str(directory))
+    with open(directory / "metadata.json") as f:
+        metadata = json.load(f)
+    registry = metadata.get("mlflow_registry", {})
+    print(f"[serve_api] Loading AutoML champion from {directory}: "
+          f"{registry.get('model_name', 'catboost')} v{registry.get('version', '?')} "
+          f"(semantic {registry.get('semantic_version', '?')})")
+    return model, preprocessor, metadata
 
 
 def _load_model():
@@ -173,9 +213,25 @@ class PredictRequest(BaseModel):
 
 app = FastAPI(title="Diabetes Readmission Model API", version=MODEL_VERSION)
 
-MODEL = _load_model()
-EXPECTED_COLS = _expected_columns(MODEL)
-MODEL_SOURCE = MLFLOW_MODEL_URI or MODEL_PATH
+# Both model kinds expose predict_proba over a frame of engineered columns; they differ only in
+# how the 16 raw features get turned into that frame, so PREPROCESS captures the difference and
+# /predict stays identical for either.
+CHAMPION_METADATA = None
+if MODEL_KIND == "champion":
+    MODEL, _CHAMPION_PREPROCESSOR, CHAMPION_METADATA = _load_champion()
+    EXPECTED_COLS = _CHAMPION_PREPROCESSOR.output_columns
+    MODEL_SOURCE = CHAMPION_DIR
+
+    def PREPROCESS(records: list) -> pd.DataFrame:
+        return _CHAMPION_PREPROCESSOR.transform(raw_frame(records))
+else:
+    MODEL = _load_model()
+    EXPECTED_COLS = _expected_columns(MODEL)
+    MODEL_SOURCE = MLFLOW_MODEL_URI or MODEL_PATH
+
+    def PREPROCESS(records: list) -> pd.DataFrame:
+        return preprocess(records, EXPECTED_COLS)
+
 MODEL_INFO.labels(model_version=MODEL_VERSION, source=MODEL_SOURCE).set(1)
 
 
@@ -223,7 +279,9 @@ def health():
         "model": type(MODEL).__name__,
         "model_version": MODEL_VERSION,
         "model_source": MODEL_SOURCE,
+        "model_kind": MODEL_KIND,
         "n_features": len(EXPECTED_COLS),
+        "mlflow_registry": (CHAMPION_METADATA or {}).get("mlflow_registry"),
         "online_drift_detection": DRIFT_DETECTOR is not None,
     }
 
@@ -270,7 +328,7 @@ def predict(req: PredictRequest):
         PREDICT_REQUESTS.inc()
         return {"n": 0, "predictions": [], "probabilities": [], "predicted_positive_ratio": None}
 
-    X = preprocess(req.records, EXPECTED_COLS)
+    X = PREPROCESS(req.records)
     proba = MODEL.predict_proba(X)[:, 1]
     preds = (proba >= 0.5).astype(int)
 
