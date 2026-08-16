@@ -42,10 +42,25 @@ Dataset: **69,987 encounters × 16 model features** (+ `readmitted_binary` targe
 | age_ordinal              |   69987 |   6.04 |  1.6  |     0 |     5 |     6 |     7 |     9 |
 
 ## Figures
-- `figures/target_balance.png`
-- `figures/numeric_distributions.png`
-- `figures/categorical_distributions.png`
-- `figures/correlation_heatmap.png`
-- `figures/readmission_rate_by_feature.png`
 
-See `eda/eda_report.html` for the full interactive Evidently data-quality report (per-column distributions, quantiles, missing values, correlations).
+### Target balance
+
+![Target balance](figures/target_balance.png)
+
+### Numeric distributions
+
+![Numeric distributions](figures/numeric_distributions.png)
+
+### Categorical distributions
+
+![Categorical distributions](figures/categorical_distributions.png)
+
+### Correlation heatmap
+
+![Correlation heatmap](figures/correlation_heatmap.png)
+
+### Readmission rate by feature
+
+![Readmission rate by feature](figures/readmission_rate_by_feature.png)
+
+See `eda/eda_report.html` for the full interactive Evidently data-quality report (per-column distributions, quantiles, missing values, correlations) — open it locally or via GitHub Pages; GitHub's file view and htmlpreview cannot render it.

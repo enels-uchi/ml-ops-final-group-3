@@ -165,12 +165,16 @@ def write_summary(df, figures):
         df[NUMERICAL_COLS].describe().round(2).T.to_markdown(),
         "",
         "## Figures",
-    ]
-    lines += [f"- `{os.path.relpath(f, EDA_DIR)}`" for f in figures]
-    lines += [
         "",
+    ]
+    for f in figures:
+        rel = os.path.relpath(f, EDA_DIR)
+        title = Path(f).stem.replace("_", " ").capitalize()
+        lines += [f"### {title}", "", f"![{title}]({rel})", ""]
+    lines += [
         "See `eda/eda_report.html` for the full interactive Evidently data-quality report "
-        "(per-column distributions, quantiles, missing values, correlations).",
+        "(per-column distributions, quantiles, missing values, correlations) — open it "
+        "locally or via GitHub Pages; GitHub's file view and htmlpreview cannot render it.",
     ]
 
     Path(EDA_DIR).mkdir(parents=True, exist_ok=True)
