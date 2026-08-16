@@ -619,3 +619,7 @@ instead. The assignment permits "Airflow, Prefect, or an equivalent workflow pla
 ## Environment Notes
 
 Package versions are pinned in `requirements.txt` to avoid known compatibility issues between `pandas`, `pyarrow`, and `pathspec` on newer Python releases. If reinstalling, use `pip install -r requirements.txt` as-is rather than letting pip resolve to the latest versions.
+
+---
+
+_Note: Claude Sonnet 5 was used to assist in this assignment._
