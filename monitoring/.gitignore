@@ -4,3 +4,6 @@
 drifted/
 logs/
 __pycache__/
+# Sampled rehearsal output from `anomaly_verification.py --scenario/--sample`. Not the
+# canonical numbers, so it must never be mistaken for the committed reports above.
+reports/demo/

@@ -12,3 +12,6 @@ logs.log
 notebooks/catboost_info/
 notebooks/logs.log
 notebooks/mlruns/
+
+# Presentation prep — local only, contains machine-specific paths and speaker notes.
+deploy/DEMO_SCRIPT.md

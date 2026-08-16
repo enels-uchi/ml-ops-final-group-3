@@ -1,0 +1,94 @@
+# Alert rules for the readmission serving stack.
+#
+# Thresholds are calibrated against the numbers in monitoring/reports/DRIFT_SUMMARY.md, where
+# the clean reference sits at drift_share 0.0 / 0 drifted columns / predicted-positive 0.244,
+# and the four simulated drift scenarios land at:
+#
+#   scenario        drifted cols   drift share   pred+ ratio
+#   column_swap        4/18           0.222         0.161
+#   dist_shift         5/18           0.278         0.921
+#   out_of_bounds      5/18           0.278         0.059
+#   schema_change      3/18           0.167         0.205
+#
+# So DriftedColumnsDetected (>=3 columns) catches all four, while PredictionDistributionShift
+# fires only on dist_shift and out_of_bounds — the two that actually move the model's output.
+# That split is intentional: it demonstrates input drift and output drift as separate signals.
+#
+# `for:` windows are short (15-30s) so the alerts visibly fire during a live demo rather than
+# minutes after the presentation moved on.
+
+groups:
+  - name: model-serving-availability
+    rules:
+      - alert: InferenceAPIDown
+        expr: up{job="readmission-api"} == 0
+        for: 15s
+        labels:
+          severity: critical
+        annotations:
+          summary: "Inference API is unreachable"
+          description: "Prometheus has failed to scrape {{ $labels.instance }} for 15s."
+
+  - name: data-drift
+    rules:
+      - alert: DriftedColumnsDetected
+        # Any run of monitoring/anomaly_verification.py that flags 3+ columns pushes this
+        # gauge past the threshold via POST /internal/drift.
+        expr: drifted_columns_total >= 3
+        for: 15s
+        labels:
+          severity: warning
+          signal: input-drift
+        annotations:
+          summary: "{{ $value }} input columns have drifted"
+          description: "Evidently flagged {{ $value }} columns vs. the clean training reference (K-S / chi-square, p < 0.05)."
+
+      - alert: DataDriftShareHigh
+        expr: data_drift_share > 0.15
+        for: 15s
+        labels:
+          severity: warning
+          signal: input-drift
+        annotations:
+          summary: "Drift share {{ $value | humanizePercentage }} of columns"
+          description: "Share of drifted columns exceeded the 15% operating threshold."
+
+      - alert: DatasetDriftDetected
+        expr: drift_detected == 1
+        for: 15s
+        labels:
+          severity: critical
+          signal: input-drift
+        annotations:
+          summary: "Evidently declared dataset-level drift"
+          description: "At least 50% of monitored columns drifted — the served model's input distribution no longer matches training."
+
+  - name: prediction-quality
+    rules:
+      - alert: PredictionDistributionShift
+        # Clean baseline is 0.244. A batch outside [0.15, 0.40] means the model's output
+        # distribution moved far enough that the input is almost certainly not production-like.
+        #
+        # The `predict_requests_total > 0` guard matters: prometheus_client initialises every
+        # Gauge at 0, so a freshly started container that has served nothing reports a ratio of
+        # 0.0 and would otherwise fire this alert immediately on an idle, perfectly healthy
+        # service. Only judge the ratio once the model has actually scored something.
+        expr: >
+          (predicted_positive_ratio > 0.40 or predicted_positive_ratio < 0.15)
+          and (predict_requests_total > 0)
+        for: 15s
+        labels:
+          severity: critical
+          signal: output-drift
+        annotations:
+          summary: "Predicted-positive ratio at {{ $value | humanizePercentage }}"
+          description: "Expected ~24.4% (clean test baseline). A swing this large indicates corrupted input or concept drift."
+
+      - alert: HighPredictionLatency
+        expr: histogram_quantile(0.95, rate(prediction_latency_seconds_bucket[1m])) > 2
+        for: 30s
+        labels:
+          severity: warning
+        annotations:
+          summary: "p95 /predict latency above 2s"
+          description: "p95 latency is {{ $value }}s over the last minute."

@@ -61,6 +61,50 @@ def _parse_drift(report: Report) -> dict:
     }
 
 
+def drift_verdict(reference_df: pd.DataFrame, current_df: pd.DataFrame) -> dict:
+    """Run Evidently's DataDriftPreset and return just the parsed verdict — no HTML written.
+
+    Same analysis as `data_drift_report`, minus the rendering step. Used by the serving API's
+    online monitor, which needs the numbers several times a minute and has no use for a 4 MB
+    HTML page each time. Skipping `save_html` is most of the cost: this returns in well under a
+    second on a few thousand rows.
+
+    Also reports which columns drifted, which `data_drift_report`'s summary shape omits.
+    """
+    cm = build_column_mapping(with_target=False)
+    report = Report(metrics=[DataDriftPreset()])
+    report.run(
+        reference_data=reference_df[FEATURE_COLS],
+        current_data=current_df[FEATURE_COLS],
+        column_mapping=cm,
+    )
+    parsed = _parse_drift(report)
+    parsed.update(_parse_per_column(report))
+    return parsed
+
+
+def _parse_per_column(report: Report) -> dict:
+    """Per-column detail from the preset's DataDriftTable metric.
+
+    Note the index: DataDriftPreset expands to [DatasetDriftMetric, DataDriftTable]. Only the
+    second carries `drift_by_columns` — reading it off metrics[0] silently yields an empty dict
+    rather than an error, so this looks the metric up by name instead of trusting the position.
+    """
+    table = next(
+        (m for m in report.as_dict()["metrics"] if m.get("metric") == "DataDriftTable"),
+        None,
+    )
+    drift_by_cols = (table or {}).get("result", {}).get("drift_by_columns", {})
+    return {
+        "drifted_columns": [c for c, v in drift_by_cols.items() if v.get("drift_detected")],
+        "stat_tests": {c: v.get("stattest_name") for c, v in drift_by_cols.items()},
+        "drift_scores": {
+            c: (round(float(v["drift_score"]), 6) if v.get("drift_score") is not None else None)
+            for c, v in drift_by_cols.items()
+        },
+    }
+
+
 def data_drift_report(
     reference_df: pd.DataFrame,
     current_df: pd.DataFrame,

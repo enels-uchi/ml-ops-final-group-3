@@ -1,0 +1,32 @@
+# Serving-only dependencies for the inference container (see Dockerfile).
+#
+# Deliberately a strict subset of requirements.txt: the container has no reason to carry
+# jupyter, dvc, feast, matplotlib or seaborn. Versions are pinned to the SAME values as
+# requirements.txt so the model pickle is unpickled by the library versions that wrote it.
+#
+# Evidently is the one heavyweight kept, because drift detection runs in-container (see below).
+# Image lands at ~1.38 GB: ~519 MB of base + serving deps, ~993 MB once Evidently is added for
+# in-container drift detection, and the rest is CatBoost, which is the served champion.
+#
+# Training and the offline monitoring scripts still use requirements.txt — this file covers
+# src/serve_api.py and what it imports (train_baseline, drift_detector, monitoring).
+
+pandas==2.3.3
+numpy==2.5.1
+scikit-learn==1.9.0
+# xgboost-cpu, not xgboost: identical `xgboost` module and same 3.4.0 version, but without the
+# CUDA/NCCL wheels the GPU build drags in (~250 MB compressed). Inference here is CPU-only, and
+# the pickle written by plain xgboost==3.4.0 loads unchanged.
+xgboost-cpu==3.4.0
+# The served model: the AutoML/MLflow champion is a CatBoost classifier, loaded from CatBoost's
+# own .cbm format (version-stable, unlike a pickle) by src/serve_api.py. xgboost stays because
+# MODEL_KIND=baseline can still serve the XGBoost baseline from the same image.
+catboost==1.2.10
+fastapi==0.141.1
+uvicorn==0.34.0
+prometheus-client==0.24.1
+# EvidentlyAI runs *inside* the container: the API analyses its own rolling window of served
+# rows on a background thread (src/drift_detector.py), so the deployed service detects drift
+# itself rather than waiting for someone to run the offline monitoring scripts. Same version and
+# same DataDriftPreset configuration as the offline reports, via src/monitoring.py.
+evidently==0.7.21

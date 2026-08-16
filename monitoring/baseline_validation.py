@@ -1,17 +1,39 @@
 """Baseline validation: pass the CLEAN test set through the deployed API and validate.
 
 Two checks:
-  1. Performance parity — predictions from the live API reproduce the training-time metrics in
-     metrics/metrics_baseline.json (F1/AUC/precision/recall within tolerance).
+  1. Performance parity — predictions from the live API reproduce the certified metrics for
+     whichever model is deployed (F1/AUC/precision/recall within tolerance).
   2. Monitoring baseline — an Evidently data-drift report of (reference = clean train) vs
      (current = clean test) shows NO dataset drift. This is the healthy reference the
      anomaly-verification step is compared against.
 
-Prereq: the API must be running (venv/bin/uvicorn src.serve_api:app --port 8000).
-Run:    venv/bin/python monitoring/baseline_validation.py
+**Which metrics parity compares against depends on the deployed model**, read from /health:
+
+  baseline   metrics/metrics_baseline.json    — XGBoost's true held-out test-set scores, produced
+                                                by src/train_baseline.py on this exact split.
+  champion   metrics/metrics_deployment.json  — the CatBoost champion's scores measured on this
+                                                split at deployment time, via `--record`.
+
+The champion needs its own file because metrics_automl.json is NOT comparable to a held-out
+evaluation: those numbers come from `leaderboard.loc['catboost']`, i.e. PyCaret's 10-fold
+cross-validation means over its own training split. PyCaret also partitions the data itself, so
+its split does not coincide with src/train_baseline.py's — which is why the champion scores
+markedly higher here than its recorded CV figures. See the `caveat` field written into
+metrics_deployment.json, and the README section on the served model.
+
+What parity therefore certifies for the champion is deployment integrity — the container
+reproduces the exact numbers the model was certified at — not a like-for-like comparison against
+the AutoML leaderboard.
+
+Prereq: the API must be running (docker compose up -d, or uvicorn src.serve_api:app --port 8000).
+Run:    python monitoring/baseline_validation.py
+        python monitoring/baseline_validation.py --record   # (re)certify the deployed champion
 """
+import argparse
 import json
 import warnings
+from datetime import datetime
+from pathlib import Path
 
 from _client import api_health, predict_frame, push_drift  # noqa: E402 (path bootstrap)
 from sklearn.metrics import f1_score, precision_score, recall_score, roc_auc_score
@@ -22,12 +44,46 @@ from monitoring import data_drift_report
 warnings.filterwarnings("ignore")
 
 METRICS_BASELINE = "metrics/metrics_baseline.json"
-TOLERANCE = 0.02  # absolute tolerance vs. recorded training metrics
+METRICS_DEPLOYMENT = "metrics/metrics_deployment.json"
+TOLERANCE = 0.02  # absolute tolerance vs. recorded metrics
 REPORT = "monitoring/reports/00_baseline.html"
+
+CHAMPION_CAVEAT = (
+    "Measured by monitoring/baseline_validation.py --record on the src/train_baseline.py "
+    "80/20 split. NOT comparable to metrics/metrics_automl.json, whose figures are PyCaret's "
+    "10-fold cross-validation means over its own independently-partitioned training split; "
+    "because that partition differs from this one, part of this test set was seen during the "
+    "champion's training, so these numbers are optimistic as a generalisation estimate. They "
+    "serve as a deployment-integrity reference: the container must reproduce them exactly."
+)
+
+
+def _record_deployment_metrics(live: dict, health: dict, n_rows: int) -> None:
+    payload = {
+        "model": health.get("model", "unknown"),
+        "model_version": health.get("model_version"),
+        "model_kind": health.get("model_kind"),
+        "mlflow_registry": health.get("mlflow_registry"),
+        "recorded_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "evaluated_on": f"clean held-out test split ({n_rows} rows)",
+        **live,
+        "caveat": CHAMPION_CAVEAT,
+    }
+    Path(METRICS_DEPLOYMENT).parent.mkdir(parents=True, exist_ok=True)
+    with open(METRICS_DEPLOYMENT, "w") as f:
+        json.dump(payload, f, indent=2)
+    print(f"[baseline] recorded deployment metrics -> {METRICS_DEPLOYMENT}")
 
 
 def main() -> int:
-    print(f"[baseline] API health: {api_health()}")
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--record", action="store_true",
+                    help="write the live metrics as the deployed model's certified reference")
+    args = ap.parse_args()
+
+    health = api_health()
+    print(f"[baseline] API health: {health}")
+    model_kind = health.get("model_kind", "baseline")
 
     X_train, X_test, y_train, y_test = load_clean_split()
     print(f"[baseline] clean test set: {X_test.shape}")
@@ -40,10 +96,20 @@ def main() -> int:
         "precision": round(precision_score(y_test, preds), 3),
         "recall": round(recall_score(y_test, preds), 3),
     }
-    with open(METRICS_BASELINE) as f:
+
+    reference_path = METRICS_BASELINE if model_kind == "baseline" else METRICS_DEPLOYMENT
+    if args.record and model_kind != "baseline":
+        _record_deployment_metrics(live, health, len(X_test))
+    if not Path(reference_path).exists():
+        raise SystemExit(
+            f"No certified metrics at {reference_path} for model_kind={model_kind}. "
+            f"Run `python monitoring/baseline_validation.py --record` once to certify the "
+            f"currently deployed model."
+        )
+    with open(reference_path) as f:
         recorded = json.load(f)
 
-    print("\n[baseline] Live API vs recorded training metrics:")
+    print(f"\n[baseline] Live API vs certified metrics ({reference_path}):")
     parity_ok = True
     for k, live_v in live.items():
         rec_v = recorded[k]

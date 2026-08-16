@@ -1,0 +1,15 @@
+# Dashboard provisioning: load every dashboard JSON mounted at /var/lib/grafana/dashboards.
+apiVersion: 1
+
+providers:
+  - name: readmission-dashboards
+    orgId: 1
+    folder: "MLOps"
+    type: file
+    disableDeletion: false
+    # Re-read the JSON periodically so edits to the file show up without restarting Grafana.
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false
