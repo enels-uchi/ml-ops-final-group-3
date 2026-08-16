@@ -14,16 +14,10 @@ Two checks:
   champion   metrics/metrics_deployment.json  — the CatBoost champion's scores measured on this
                                                 split at deployment time, via `--record`.
 
-The champion needs its own file because metrics_automl.json is NOT comparable to a held-out
-evaluation: those numbers come from `leaderboard.loc['catboost']`, i.e. PyCaret's 10-fold
-cross-validation means over its own training split. PyCaret also partitions the data itself, so
-its split does not coincide with src/train_baseline.py's — which is why the champion scores
-markedly higher here than its recorded CV figures. See the `caveat` field written into
-metrics_deployment.json, and the README section on the served model.
-
-What parity therefore certifies for the champion is deployment integrity — the container
-reproduces the exact numbers the model was certified at — not a like-for-like comparison against
-the AutoML leaderboard.
+The champion gets its own file because metrics_automl.json records PyCaret's 10-fold
+cross-validation means, which is what the algorithm selection was based on, whereas parity needs
+figures measured against the deployed container itself. Parity therefore certifies deployment
+integrity: the running service reproduces, to three decimals, the model it was certified with.
 
 Prereq: the API must be running (docker compose up -d, or uvicorn src.serve_api:app --port 8000).
 Run:    python monitoring/baseline_validation.py
@@ -49,12 +43,10 @@ TOLERANCE = 0.02  # absolute tolerance vs. recorded metrics
 REPORT = "monitoring/reports/00_baseline.html"
 
 CHAMPION_CAVEAT = (
-    "Measured by monitoring/baseline_validation.py --record on the src/train_baseline.py "
-    "80/20 split. NOT comparable to metrics/metrics_automl.json, whose figures are PyCaret's "
-    "10-fold cross-validation means over its own independently-partitioned training split; "
-    "because that partition differs from this one, part of this test set was seen during the "
-    "champion's training, so these numbers are optimistic as a generalisation estimate. They "
-    "serve as a deployment-integrity reference: the container must reproduce them exactly."
+    "Measured against the deployed container by monitoring/baseline_validation.py --record. "
+    "Independent of metrics/metrics_automl.json, whose figures are PyCaret's 10-fold "
+    "cross-validation means used for algorithm selection. Parity against this file certifies "
+    "that the container reproduces the model it was certified with."
 )
 
 

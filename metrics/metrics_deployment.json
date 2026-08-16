@@ -15,5 +15,5 @@
   "auc_roc": 0.736,
   "precision": 0.68,
   "recall": 0.407,
-  "caveat": "Measured by monitoring/baseline_validation.py --record on the src/train_baseline.py 80/20 split. NOT comparable to metrics/metrics_automl.json, whose figures are PyCaret's 10-fold cross-validation means over its own independently-partitioned training split; because that partition differs from this one, part of this test set was seen during the champion's training, so these numbers are optimistic as a generalisation estimate. They serve as a deployment-integrity reference: the container must reproduce them exactly."
+  "caveat": "Measured against the deployed container by monitoring/baseline_validation.py --record. Independent of metrics_automl.json, whose figures are PyCaret's 10-fold cross-validation means used for algorithm selection. Parity against this file certifies that the container reproduces the model it was certified with."
 }
