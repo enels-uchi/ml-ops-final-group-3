@@ -5,7 +5,8 @@
 # requirements.txt so the model pickle is unpickled by the library versions that wrote it.
 #
 # Evidently is the one heavyweight kept, because drift detection runs in-container (see below).
-# Image lands at ~993 MB; without Evidently it would be ~519 MB.
+# Image lands at ~1.38 GB: ~519 MB of base + serving deps, ~993 MB once Evidently is added for
+# in-container drift detection, and the rest is CatBoost, which is the served champion.
 #
 # Training and the offline monitoring scripts still use requirements.txt — this file covers
 # src/serve_api.py and what it imports (train_baseline, drift_detector, monitoring).

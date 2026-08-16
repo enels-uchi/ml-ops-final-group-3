@@ -2,6 +2,80 @@
 
 Predicting hospital readmission risk for diabetic patients using the UCI/Kaggle "Diabetes 130-US Hospitals for Years 1999-2008" dataset.
 
+## Quickstart — run the deployed service
+
+**Only Docker is required.** The trained model is baked into the image, so you do not need the
+dataset, a Python environment, or any training run to see the deployment working.
+
+```bash
+git clone https://github.com/enels-uchi/ml-ops-final-group-3.git
+cd ml-ops-final-group-3
+docker compose up --build -d          # first build ~3-5 min; subsequent starts ~5s
+```
+
+That starts three containers. Give them ~25 seconds, then:
+
+| Service | URL | What it is |
+|---|---|---|
+| **API** | http://localhost:8000/docs | interactive Swagger UI — send a patient, get a risk score |
+| **Grafana** | http://localhost:3000/d/readmission-monitoring | monitoring dashboard (no login needed) |
+| **Prometheus** | http://localhost:9090/alerts | alert rules and their state |
+
+**Get a prediction** — expand `POST /predict` in Swagger, click *Try it out*, and paste the
+contents of [deploy/demo_request.json](deploy/demo_request.json). Or from a terminal:
+
+```bash
+curl -X POST localhost:8000/predict -H 'Content-Type: application/json' \
+     -d @deploy/demo_request.json
+```
+
+**Verify the deployment** (needs Python, but only the standard library):
+
+```bash
+python deploy/smoke_test.py           # expects: 14/14 checks passed
+```
+
+**Stop it:** `docker compose down -v`
+
+> **Behind a corporate/university proxy?** If the build fails with
+> `CERTIFICATE_VERIFY_FAILED`, TLS inspection is breaking pip. Rebuild with
+> `PIP_TRUSTED_HOSTS=1 docker compose up --build -d` (`set PIP_TRUSTED_HOSTS=1` first on cmd.exe).
+
+Everything else — the monitoring workflow, the drift simulation, and retraining from raw data —
+needs the Python environment described under [Setup](#setup). Jump to:
+[Containerized Deployment](#containerized-deployment-docker--docker-compose) ·
+[Monitoring & Drift](#offline-monitoring--drift-simulation-evidentlyai--prometheus) ·
+[Known Limitations](#known-limitations)
+
+## Problem Statement
+
+A high proportion of diabetic patients are readmitted to hospital within 30 days of discharge —
+a signal that they were released before being fully stabilised, at real cost to both the patient
+and the health system. We predict that risk **at discharge**, as a binary classification over
+~70,000 encounters from 130 US hospitals (1999–2008), so care teams can target follow-up at the
+patients most likely to come back.
+
+**Target:** `readmitted_binary` — 1 if readmitted within 30 days, else 0. ~41% positive.
+
+## Evaluation Metric
+
+**Primary: F1 and AUC-ROC. Tiebreaker: recall.**
+
+The target is mildly imbalanced (~41% positive), so accuracy is uninformative — a model that
+never predicts readmission still scores ~59%. F1 balances the precision/recall trade-off on the
+positive class, and AUC-ROC measures ranking quality independent of the 0.5 threshold, which
+matters because the operating threshold is a clinical decision, not a modelling one.
+
+Recall breaks ties because **the error costs are asymmetric**: a false negative is a patient sent
+home who is readmitted — a missed intervention, and the expensive outcome. A false positive is an
+unnecessary follow-up appointment. Under-triaging is the costlier mistake, so between two
+otherwise comparable models we prefer the one that misses fewer at-risk patients.
+
+Both models land around 0.65 AUC. That ceiling is a property of the data, not the search: linear
+correlations with the target are all weak (strongest is `number_inpatient` at +0.15), so
+readmission here is driven by many small signals rather than one dominant feature. See
+[eda/EDA_SUMMARY.md](eda/EDA_SUMMARY.md).
+
 ## Project Structure
 
 ```
@@ -15,7 +89,14 @@ ml-ops-final-group-3/
 │   └── eda_report.html     # Evidently data-quality report
 ├── feast_repo/            # Feast feature store repo
 ├── metrics/                # model evaluation metrics (JSON)
-├── models/                 # saved model artifacts (pickle) + feature_columns.json
+│   ├── metrics_baseline.json    # XGBoost held-out test metrics
+│   ├── metrics_automl.json      # AutoML leaderboard (10-fold CV means) + registry coordinates
+│   └── metrics_deployment.json  # deployed champion's certified metrics (see Baseline Validation)
+├── models/                 # saved model artifacts
+│   ├── model_baseline.pkl       # XGBoost baseline
+│   ├── model_automl.pkl         # PyCaret champion pipeline (needs PyCaret to load)
+│   ├── champion/                # champion flattened for serving (CatBoost .cbm + JSON transforms)
+│   └── drift_reference.csv      # clean-training sample for in-container drift detection
 ├── monitoring/             # deployment monitoring (see Production Monitoring)
 │   ├── baseline_validation.py  # clean test set through API, validate vs baseline metrics
 │   ├── drift_simulation.py     # generate corrupted/drifted test datasets
@@ -27,6 +108,7 @@ ml-ops-final-group-3/
 │   ├── final-group3-en.ipynb   # cleaning, Feast, DVC, XGBoost baseline
 │   └── automl_pycaret.ipynb    # PyCaret AutoML + MLflow tracking (separate env, see Setup)
 ├── outputs/                # AutoML leaderboard CSVs (gitignored)
+├── screenshots/            # MLflow tracking + registry evidence (see AutoML section)
 ├── src/                    # pipeline scripts (see Pipeline Orchestration)
 │   ├── data_cleaning.py
 │   ├── feature_engineering.py
@@ -39,13 +121,14 @@ ml-ops-final-group-3/
 │   ├── serve_api.py           # FastAPI serving app (see Model Serving API)
 │   ├── drift_detector.py      # in-container Evidently monitor (background thread)
 │   ├── build_drift_reference.py  # generates models/drift_reference.csv for the above
+│   ├── export_champion.py     # flattens the PyCaret champion into models/champion/
+│   ├── champion_preprocess.py # pure-pandas replay of the champion's preprocessing
 │   ├── monitoring.py          # EvidentlyAI drift/performance report helpers (online + offline)
 │   └── eda.py                 # exploratory data analysis generator (see EDA)
 ├── deploy/                 # containerized deployment + observability stack
 │   ├── smoke_test.py           # post-deploy verification of the running API
 │   ├── demo_traffic.py         # continuous traffic generator for a live drift demo
 │   ├── demo_request.json       # sample /predict payload
-│   ├── DEMO_SCRIPT.md          # runbook + narration for the demo video
 │   ├── prometheus/             # scrape config + drift alert rules
 │   └── grafana/                # provisioned datasource + monitoring dashboard
 ├── Dockerfile              # inference container (FastAPI + uvicorn + baked-in model)
@@ -115,6 +198,18 @@ Feast is used to register and retrieve engineered features (`feast_repo/feature_
 
 **Result vs. baseline:** AutoML's CatBoost (AUC 0.657, F1 0.432) performs comparably to — not clearly better than — the XGBoost baseline (AUC 0.648, F1 0.436); every algorithm tried clustered in the same 0.63–0.66 AUC range regardless of tuning, suggesting the current feature set is closer to its practical ceiling than the choice of algorithm. Feature importance also diverged notably between the two models (XGBoost's baseline was dominated by `number_inpatient`; CatBoost's ranking is led by `num_lab_procedures` and is far more evenly distributed) — a reminder that single-model feature importance shouldn't be read as ground truth.
 
+**Registry evidence.** `mlflow.db` is gitignored, so the registry itself isn't browsable from a
+clone (see Known Limitations). These committed screenshots are the record:
+
+| Screenshot | Shows |
+|---|---|
+| [screenshots/training_runs.png](screenshots/training_runs.png) | the MLflow experiment with every AutoML candidate logged |
+| [screenshots/model_overview.png](screenshots/model_overview.png) | the registered model, its params and metrics |
+| [screenshots/model_registery_versioning.png](screenshots/model_registery_versioning.png) | `diabetes-readmission-catboost` v1 with the `champion` alias and `semantic_version: 1.0.0` tag |
+
+The same registry coordinates are also machine-readable in `metrics/metrics_automl.json`,
+`models/champion/metadata.json`, and on the live API's `GET /health`.
+
 **View the tracking dashboard:**
 ```bash
 source venv-automl/bin/activate
@@ -138,8 +233,15 @@ python src/pipeline_flow.py
 3. `register_feast_features` — writes the feature view, materializes the parquet, runs `feast apply`
 4. `train_baseline` — trains the XGBoost baseline, saves `models/model_baseline.pkl` + `metrics/metrics_baseline.json`
 5. `train_automl` — runs the PyCaret AutoML search and registers the winning model to MLflow
+6. `export_champion` — flattens the registered champion into `models/champion/` for serving
+   (self-verifying: fails the run rather than exporting an artifact that disagrees with the model)
+7. `build_drift_reference` — refreshes `models/drift_reference.csv`, the clean-training sample the
+   container's online drift monitor compares live traffic against
 
-Steps 1–4 run directly in the main `venv`. Step 5 is invoked as a **subprocess using `venv-automl`'s Python interpreter**, since PyCaret doesn't support the main environment's Python 3.13 — the orchestrator itself doesn't need PyCaret installed, it just shells out to the other environment for that one step. Long-running steps (the AutoML search and hyperparameter tuning) print a periodic elapsed-time heartbeat (`src/progress.py`) so the pipeline doesn't appear to hang during multi-minute stretches.
+Steps 6–7 exist so a retrain leaves the deployment artifacts consistent with the new model rather
+than silently stale.
+
+Steps 1–4 and 7 run directly in the main `venv`. Steps 5–6 are invoked as **subprocesses using `venv-automl`'s Python interpreter**, since PyCaret doesn't support the main environment's Python 3.13 — the orchestrator itself doesn't need PyCaret installed, it just shells out to the other environment for that one step. Long-running steps (the AutoML search and hyperparameter tuning) print a periodic elapsed-time heartbeat (`src/progress.py`) so the pipeline doesn't appear to hang during multi-minute stretches.
 
 **Retries:** the first four tasks retry once automatically on failure; the AutoML step does not auto-retry (a failed multi-minute run should be investigated, not silently rerun).
 
@@ -172,9 +274,10 @@ and is highest for diabetes/respiratory/circulatory primary diagnoses.
 
 ## Model Serving API (FastAPI)
 
-The baseline XGBoost model is served over HTTP by a FastAPI app (`src/serve_api.py`). It loads
-`models/model_baseline.pkl`, reproduces the exact train-time preprocessing (the 16 raw features →
-`get_dummies` → align to the model's 36 one-hot columns), and exposes:
+The registered AutoML champion is served over HTTP by a FastAPI app (`src/serve_api.py`).
+Requests always carry the **16 raw clinical features**; the app reproduces the served model's own
+training-time preprocessing internally, so serving can never silently diverge from training.
+It exposes:
 
 | Endpoint | Method | Purpose |
 |---|---|---|
@@ -326,11 +429,12 @@ curl -X POST localhost:8000/predict -H 'Content-Type: application/json' -d '{
 ```
 
 **Image notes:**
-- Base `python:3.12-slim`, ~993 MB. `requirements-serve.txt` is a strict subset of
+- Base `python:3.12-slim`, ~1.38 GB. `requirements-serve.txt` is a strict subset of
   `requirements.txt` (no jupyter/dvc/feast/matplotlib/seaborn) and uses `xgboost-cpu` rather than
   `xgboost`, dropping ~250 MB of CUDA/NCCL wheels an inference-only service never touches.
-  Evidently *is* included — it runs in-container for online drift detection (see above), which is
-  the bulk of the image size; a serving-only image without it builds at ~519 MB.
+  Evidently and CatBoost are the two heavyweights, and both are deliberate: Evidently runs
+  in-container for online drift detection, and CatBoost is the served champion. A serving-only
+  image without them builds at ~519 MB; +Evidently is ~993 MB; +CatBoost is the current ~1.38 GB.
 - Runs as a non-root user (`appuser`, uid 10001) with a `HEALTHCHECK` on `/health`.
 - The model is **baked into the image**, so the container is a reproducible unit — the same image
   digest always serves the same weights.
@@ -454,10 +558,63 @@ containerized API — all four scenarios reproduce the numbers in `DRIFT_SUMMARY
 - [x] Feast feature store setup and retrieval
 - [x] Train/test split, XGBoost baseline model
 - [x] Experiment tracking & AutoML (MLflow + PyCaret) — see AutoML section
-- [x] Pipeline orchestration (Prefect)
-- [x] Model serving API (FastAPI) — see Model Serving API section
+- [x] Model Registry entry with semantic versioning (`diabetes-readmission-catboost` v1 / 1.0.0)
+- [x] Pipeline orchestration (Prefect), including deployment-artifact regeneration
+- [x] Model serving API (FastAPI) serving the **registered champion** — see Model Serving API
 - [x] Containerization & deployment (Docker + Docker Compose) — see Containerized Deployment section
 - [x] Production monitoring & drift simulation (EvidentlyAI + Prometheus + Grafana) — see Monitoring section
+
+## Known Limitations
+
+Recorded deliberately rather than left for a reader to discover.
+
+**1. The AutoML champion's split does not match the baseline's.** `src/train_baseline.py` splits
+with `train_test_split(..., random_state=42)`; PyCaret's `setup(train_size=0.8, session_id=42)`
+partitions the data itself, and the two partitions do not coincide. Part of the baseline's test
+set was therefore inside the champion's training data, which is why the champion scores 0.736 AUC
+on that split against its recorded 0.657. The assignment asks for the test set to stay isolated
+until production validation — that holds for the XGBoost baseline, but **not** for the CatBoost
+champion. `metrics/metrics_deployment.json` exists to make the distinction explicit: it certifies
+deployment integrity (the container reproduces its certified numbers exactly), not generalisation.
+The fix is to have the AutoML step consume the same pre-split data as the baseline.
+
+**2. `metrics_automl.json` reports cross-validation means, not held-out scores.** They come from
+`leaderboard.loc['catboost']`, i.e. PyCaret's 10-fold CV over its training split, while
+`metrics_baseline.json` is a single held-out evaluation. The 0.657-vs-0.648 AUC comparison behind
+the champion selection is therefore not strictly like-for-like.
+
+**3. The MLflow registry is not reproducible from a clone.** `mlflow.db` and `mlruns/` are
+gitignored, so the registry exists only on the machine that ran the AutoML step. The registry
+*coordinates* are committed (in `metrics_automl.json`, `models/champion/metadata.json`, and on
+`GET /health`) and `screenshots/` holds the registry UI as evidence, but a grader cannot browse
+the live registry without re-running the pipeline. A shared tracking backend, or committing the
+SQLite file, would close this.
+
+**4. DVC has no remote.** `.dvc` pointer files are committed but there is no configured storage,
+so `dvc pull` will not work — processed data has to be regenerated by re-running the pipeline.
+
+**5. Orchestration is Prefect, not Airflow.** The proposal named Airflow; Prefect was used
+instead. The assignment permits "Airflow, Prefect, or an equivalent workflow platform".
+
+## Assignment Requirements Coverage
+
+| Requirement | Where |
+|---|---|
+| Dataset with a clear target | `readmitted_binary`, ~70k encounters — Problem Statement above |
+| Evaluation metric aligned to constraints | Evaluation Metric section above |
+| Train/test split, test isolated | `src/train_baseline.py` 80/20 stratified — see Limitation 1 |
+| Automated orchestrator pipeline | Prefect, `src/pipeline_flow.py` (7 stages) |
+| Experiment tracking + model logging | MLflow + PyCaret AutoML across 16 algorithms |
+| Model Registry with semantic versioning | `diabetes-readmission-catboost` v1, alias `champion`, tag `semantic_version: 1.0.0` — evidence in `screenshots/` |
+| Package the registered model, deploy it | Docker + FastAPI serving the champion — Containerized Deployment |
+| Accepts test inputs, returns real-time predictions | `POST /predict`, Swagger at `/docs` |
+| Monitoring framework / dashboard | EvidentlyAI (online + offline) + Prometheus + Grafana |
+| Baseline validation against monitoring baseline | `monitoring/baseline_validation.py` |
+| Drift simulation (corrupt the test set) | `monitoring/drift_simulation.py` — 4 scenarios |
+| Anomaly verification + alerting documented | `monitoring/anomaly_verification.py`, `monitoring/reports/DRIFT_SUMMARY.md`, Prometheus alert rules |
+| Fully commented source code | all modules carry module- and function-level docstrings |
+| Comprehensive README | this file |
+| Dependency configuration | `requirements.txt`, `requirements-serve.txt`, `Dockerfile` |
 
 ## Environment Notes
 
