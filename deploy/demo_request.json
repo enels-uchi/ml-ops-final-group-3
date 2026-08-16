@@ -1,0 +1,40 @@
+{
+  "records": [
+    {
+      "time_in_hospital": 13,
+      "num_lab_procedures": 68,
+      "num_procedures": 2,
+      "num_medications": 28,
+      "number_outpatient": 0,
+      "number_emergency": 0,
+      "number_inpatient": 0,
+      "number_diagnoses": 8,
+      "admission_type_id": 2,
+      "discharge_disposition_id": 1,
+      "admission_source_id": 4,
+      "diag_1_category": "Circulatory",
+      "medical_specialty_grouped": "Missing",
+      "race_white": 1,
+      "gender": "Female",
+      "age_ordinal": 8
+    },
+    {
+      "time_in_hospital": 9,
+      "num_lab_procedures": 68,
+      "num_procedures": 2,
+      "num_medications": 28,
+      "number_outpatient": 0,
+      "number_emergency": 3,
+      "number_inpatient": 6,
+      "number_diagnoses": 8,
+      "admission_type_id": 2,
+      "discharge_disposition_id": 1,
+      "admission_source_id": 4,
+      "diag_1_category": "Diabetes",
+      "medical_specialty_grouped": "InternalMedicine",
+      "race_white": 1,
+      "gender": "Female",
+      "age_ordinal": 8
+    }
+  ]
+}

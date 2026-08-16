@@ -10,6 +10,12 @@ import sys
 
 import requests
 
+# These scripts print non-ASCII (Δ deltas, 🚨 alert markers). On Windows the console defaults to
+# cp1252 and every such print raises UnicodeEncodeError mid-run, so force UTF-8 on stdout/stderr.
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+
 # Repo root = parent of this file's directory (monitoring/).
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if REPO_ROOT not in sys.path:

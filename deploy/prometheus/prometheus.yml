@@ -1,0 +1,24 @@
+# Prometheus scrape + alerting config for the readmission serving stack.
+global:
+  # 5s is aggressive for production but makes the drift demo legible: running
+  # monitoring/anomaly_verification.py produces a visible step change within seconds.
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+rule_files:
+  - /etc/prometheus/alert_rules.yml
+
+scrape_configs:
+  - job_name: readmission-api
+    metrics_path: /metrics
+    static_configs:
+      # "api" resolves over the compose network; the port is the container port, not the
+      # published host port.
+      - targets: ["api:8000"]
+        labels:
+          service: readmission-api
+
+  # Prometheus scraping itself — useful for confirming the stack is alive during the demo.
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

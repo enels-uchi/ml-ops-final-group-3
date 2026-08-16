@@ -1,0 +1,90 @@
+# Full deployment + monitoring stack for the readmission model.
+#
+#   docker compose up --build -d      start everything
+#   docker compose logs -f api        follow the API
+#   docker compose down -v            stop and wipe the metric volumes
+#
+# Services
+#   api         :8000  FastAPI inference service (this repo's Dockerfile)
+#   prometheus  :9090  scrapes the API's /metrics every 5s, evaluates the alert rules
+#   grafana     :3000  pre-provisioned "Model Serving & Drift Monitoring" dashboard
+#
+# Drift detection itself runs INSIDE the api container (Evidently on a background thread), so
+# the stack detects drift from live traffic with no script involvement.
+#
+# The scripts in monitoring/ are the deeper offline analysis and still run on the HOST against
+# the containerized API:
+#   API_URL=http://localhost:8000 python monitoring/baseline_validation.py
+# They stay on the host because they write the HTML reports into the working tree and need the
+# full training environment (scikit-learn metrics, the feature CSVs) the image doesn't carry.
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        # Only needed behind a TLS-inspecting proxy; see the Dockerfile. Enable with:
+        #   PIP_TRUSTED_HOSTS=1 docker compose up --build
+        PIP_TRUSTED_HOSTS: ${PIP_TRUSTED_HOSTS:-0}
+    image: diabetes-readmission-api:1.0.0
+    container_name: readmission-api
+    ports:
+      - "8000:8000"
+    environment:
+      # Which model to serve. Swap MODEL_PATH for models/model_automl.pkl, or set
+      # MLFLOW_MODEL_URI=models:/diabetes-readmission-catboost@champion together with
+      # MLFLOW_TRACKING_URI to serve the registered champion straight from the registry.
+      MODEL_PATH: models/model_baseline.pkl
+      MODEL_VERSION: baseline-1.0.0
+      REQUEST_LOG: monitoring/logs/requests.csv
+    volumes:
+      # Bind-mounted so the request log survives `docker compose down` and can be inspected
+      # (or fed back into Evidently) from the host.
+      - ./monitoring/logs:/app/monitoring/logs
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    container_name: readmission-prometheus
+    ports:
+      - "9090:9090"
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      # 2h is plenty for a demo and keeps the volume tiny.
+      - --storage.tsdb.retention.time=2h
+      - --web.enable-lifecycle
+    volumes:
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/prometheus/alert_rules.yml:/etc/prometheus/alert_rules.yml:ro
+      - prometheus-data:/prometheus
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.5.2
+    container_name: readmission-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      # Anonymous viewing so a grader (or a live demo) can open the dashboard without a login.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_USERS_DEFAULT_THEME: light
+    volumes:
+      # Provisioning-as-code: the datasource and dashboard are declared in files, so the
+      # dashboard exists the first time the stack starts — nothing is clicked together by hand.
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+volumes:
+  prometheus-data:
+  grafana-data:

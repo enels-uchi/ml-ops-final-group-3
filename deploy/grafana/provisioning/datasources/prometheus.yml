@@ -1,0 +1,16 @@
+# Datasource provisioning: Grafana wires itself to Prometheus on first boot, so the stack
+# comes up fully configured with no manual clicking.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    # Compose service name + container port (not the published host port).
+    url: http://prometheus:9090
+    isDefault: true
+    uid: prometheus
+    editable: false
+    jsonData:
+      # Must match prometheus.yml's scrape_interval so Grafana picks sensible step sizes.
+      timeInterval: 5s
