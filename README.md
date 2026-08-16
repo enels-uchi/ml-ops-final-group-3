@@ -11,7 +11,14 @@ ml-ops-final-group-3/
 │   └── processed/        # cleaned + feature-engineered CSVs (DVC-tracked)
 ├── feast_repo/            # Feast feature store repo
 ├── metrics/                # model evaluation metrics (JSON)
-├── models/                 # saved model artifacts (pickle)
+├── models/                 # saved model artifacts (pickle) + feature_columns.json
+├── monitoring/             # deployment monitoring (see Production Monitoring)
+│   ├── baseline_validation.py  # clean test set through API, validate vs baseline metrics
+│   ├── drift_simulation.py     # generate corrupted/drifted test datasets
+│   ├── anomaly_verification.py # send drifted data, catch + alert on drift
+│   ├── _client.py              # shared API client + path bootstrap
+│   ├── drifted/                # simulated drifted CSVs (generated)
+│   └── reports/                # Evidently HTML dashboards + DRIFT_SUMMARY.md (generated)
 ├── notebooks/
 │   ├── final-group3-en.ipynb   # cleaning, Feast, DVC, XGBoost baseline
 │   └── automl_pycaret.ipynb    # PyCaret AutoML + MLflow tracking (separate env, see Setup)
@@ -23,7 +30,10 @@ ml-ops-final-group-3/
 │   ├── train_baseline.py
 │   ├── train_automl.py        # runs under venv-automl, invoked via subprocess
 │   ├── progress.py            # console heartbeat for long-running steps
-│   └── pipeline_flow.py       # Prefect flow wiring the above together
+│   ├── pipeline_flow.py       # Prefect flow wiring the above together
+│   ├── prepare_data.py        # materialize features CSV + clean train/test split
+│   ├── serve_api.py           # FastAPI serving app (see Model Serving API)
+│   └── monitoring.py          # EvidentlyAI drift/performance report helpers
 ├── requirements.txt
 └── README.md
 ```
@@ -117,6 +127,62 @@ Steps 1–4 run directly in the main `venv`. Step 5 is invoked as a **subprocess
 
 **Note:** every run registers a new MLflow model version and re-points the `champion` alias at it — intentional, since each pipeline execution is a new trained candidate, not an overwrite.
 
+## Model Serving API (FastAPI)
+
+The baseline XGBoost model is served over HTTP by a FastAPI app (`src/serve_api.py`). It loads
+`models/model_baseline.pkl`, reproduces the exact train-time preprocessing (the 16 raw features →
+`get_dummies` → align to the model's 36 one-hot columns), and exposes:
+
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/health` | GET | Model + version status |
+| `/predict` | POST | `{"records":[{...16 raw features...}]}` → predictions + probabilities |
+| `/metrics` | GET | Prometheus metrics (serving counters + drift gauges) |
+| `/internal/drift` | POST | Monitoring scripts push drift results so they surface on `/metrics` |
+
+**macOS note:** the model is XGBoost, which needs the OpenMP runtime — `brew install libomp` once.
+
+**Run it** (from the repo root):
+```bash
+brew install libomp                      # one-time, macOS only
+python src/prepare_data.py               # materialize data/processed/diabetic_data_features.csv from the Feast parquet
+uvicorn src.serve_api:app --port 8000
+```
+Quick check: `curl localhost:8000/health` and `curl localhost:8000/metrics`.
+
+## Production Monitoring & Drift Simulation (EvidentlyAI + Prometheus)
+
+A three-stage monitoring workflow (`monitoring/`) validates the deployed API and stress-tests it
+against simulated drift. **Start the API first**, then run in order:
+
+**1. Baseline validation** — `python monitoring/baseline_validation.py`
+Pushes the clean test set through `/predict` and asserts the live metrics reproduce
+`metrics/metrics_baseline.json` (F1 0.436 / AUC 0.648, exact match), then writes a combined
+Evidently report of *clean train vs clean test* (`monitoring/reports/00_baseline.html`) to
+confirm **no drift** — the healthy reference.
+
+**2. Drift simulation** — `python monitoring/drift_simulation.py`
+Writes four artificially corrupted copies of the test set to `monitoring/drifted/`:
+`out_of_bounds` (impossible numeric magnitudes), `column_swap` (values wired to wrong fields),
+`schema_change` (unseen categorical values), `dist_shift` (older/sicker population).
+
+**3. Anomaly verification** — `python monitoring/anomaly_verification.py`
+Sends each drifted set to the API, writes a combined Evidently report vs the clean reference
+(`monitoring/reports/<scenario>.html`), pushes the result to the API's Prometheus gauges
+(`data_drift_share`, `drifted_columns_total`, `drift_detected`), and **fires alerts** when columns
+drift or the predicted-positive ratio swings. All four scenarios are caught. Output: one HTML
+dashboard per scenario plus a consolidated `monitoring/reports/DRIFT_SUMMARY.md`.
+
+**Report layout:** each report is a single classic Evidently dashboard (rendered via
+`evidently.legacy`) combining **Dataset Drift** (summary tiles) → **Data Drift Summary** (per-column
+table with reference-vs-current distributions, stat test, and drift score — including the model's
+`prediction` and `readmitted_binary` target rows) → **Classification Model Quality** (current vs
+reference, with confusion matrix). This mirrors the standard Evidently monitoring report layout.
+
+**Dashboards:** Evidently reports are self-contained HTML in `monitoring/reports/` — open them in a
+browser. Live serving/drift metrics are on `GET /metrics` (Prometheus format), ready to be scraped
+by Prometheus/Grafana if desired. Monitoring config is self-contained (no Docker required).
+
 ## Current Status
 
 - [x] Environment setup, data ingestion, EDA
@@ -126,8 +192,8 @@ Steps 1–4 run directly in the main `venv`. Step 5 is invoked as a **subprocess
 - [x] Train/test split, XGBoost baseline model
 - [x] Experiment tracking & AutoML (MLflow + PyCaret) — see AutoML section
 - [x] Pipeline orchestration (Prefect)
-- [ ] Model containerization & deployment (Docker + FastAPI/Flask/BentoML)
-- [ ] Production monitoring & drift simulation (EvidentlyAI)
+- [x] Model serving API (FastAPI) — see Model Serving API section
+- [x] Production monitoring & drift simulation (EvidentlyAI + Prometheus) — see Monitoring section
 
 ## Environment Notes
 

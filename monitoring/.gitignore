@@ -1,0 +1,6 @@
+# Generated monitoring artifacts (reproducible by re-running the scripts)
+reports/*
+!reports/DRIFT_SUMMARY.md
+drifted/
+logs/
+__pycache__/
