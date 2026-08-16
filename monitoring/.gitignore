@@ -1,6 +1,6 @@
-# Generated monitoring artifacts (reproducible by re-running the scripts)
-reports/*
-!reports/DRIFT_SUMMARY.md
+# Generated monitoring artifacts.
+# The HTML reports in reports/ + DRIFT_SUMMARY.md are committed as deliverables.
+# The drifted datasets and request logs stay out of git (bulky and reproducible).
 drifted/
 logs/
 __pycache__/
