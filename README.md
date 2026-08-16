@@ -9,6 +9,10 @@ ml-ops-final-group-3/
 ├── data/
 │   ├── raw/              # diabetic_data.csv (not in git — see Setup)
 │   └── processed/        # cleaned + feature-engineered CSVs (DVC-tracked)
+├── eda/                    # exploratory data analysis (see EDA section)
+│   ├── figures/            # seaborn/matplotlib charts (PNG)
+│   ├── EDA_SUMMARY.md      # written EDA summary
+│   └── eda_report.html     # Evidently data-quality report
 ├── feast_repo/            # Feast feature store repo
 ├── metrics/                # model evaluation metrics (JSON)
 ├── models/                 # saved model artifacts (pickle) + feature_columns.json
@@ -33,7 +37,8 @@ ml-ops-final-group-3/
 │   ├── pipeline_flow.py       # Prefect flow wiring the above together
 │   ├── prepare_data.py        # materialize features CSV + clean train/test split
 │   ├── serve_api.py           # FastAPI serving app (see Model Serving API)
-│   └── monitoring.py          # EvidentlyAI drift/performance report helpers
+│   ├── monitoring.py          # EvidentlyAI drift/performance report helpers
+│   └── eda.py                 # exploratory data analysis generator (see EDA)
 ├── requirements.txt
 └── README.md
 ```
@@ -126,6 +131,31 @@ Steps 1–4 run directly in the main `venv`. Step 5 is invoked as a **subprocess
 **Retries:** the first four tasks retry once automatically on failure; the AutoML step does not auto-retry (a failed multi-minute run should be investigated, not silently rerun).
 
 **Note:** every run registers a new MLflow model version and re-points the `champion` alias at it — intentional, since each pipeline execution is a new trained candidate, not an overwrite.
+
+## Exploratory Data Analysis (EDA)
+
+Beyond the EDA in `notebooks/final-group3-en.ipynb`, a scripted, model-centric EDA
+(`src/eda.py`) profiles the 16 features the models actually use plus the `readmitted_binary`
+target, and writes reproducible artifacts to `eda/`.
+
+**Run it:**
+```bash
+python src/eda.py    # from the repo root
+```
+
+**Outputs:**
+- `eda/figures/*.png` — target balance, numeric distributions, categorical distributions,
+  correlation heatmap, and readmission rate by age / diagnosis / prior inpatient visits.
+- `eda/EDA_SUMMARY.md` — written summary: shape, target balance (40.7% readmitted), missingness,
+  numeric stats, and the strongest target correlations.
+- `eda/eda_report.html` — Evidently `DataQualityPreset` report (same classic look as the
+  monitoring dashboards) for interactive per-column exploration.
+
+**Key takeaways:** the target is mildly imbalanced (~41% positive); linear correlations with the
+target are all weak (top is `number_inpatient` at +0.15), which explains the models' modest
+~0.65 AUC — readmission is driven by many small signals rather than one dominant feature.
+Readmission rate rises with age, with prior inpatient visits (0.38 → 0.83 across 0→5+ visits),
+and is highest for diabetes/respiratory/circulatory primary diagnoses.
 
 ## Model Serving API (FastAPI)
 
