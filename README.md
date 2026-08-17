@@ -1,6 +1,12 @@
 # Diabetes 30-Day Readmission Prediction — MLOps Final Project
 
+**Repository:** https://github.com/enels-uchi/ml-ops-final-group-3
+
 Predicting hospital readmission risk for diabetic patients using the UCI/Kaggle "Diabetes 130-US Hospitals for Years 1999-2008" dataset.
+
+An end-to-end MLOps pipeline: automated training and orchestration, experiment tracking with a
+versioned model registry, the registered champion deployed as a container, and continuous drift
+monitoring with alerting.
 
 ## Quickstart — run the deployed service
 
