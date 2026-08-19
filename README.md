@@ -1,5 +1,7 @@
 # Diabetes 30-Day Readmission Prediction — MLOps Final Project
 
+**By: Mohammed Afnan Waseem, Eric Nelson, Wendy Xing, Sami Samim**
+
 **Repository:** https://github.com/enels-uchi/ml-ops-final-group-3
 
 Predicting hospital readmission risk for diabetic patients using the UCI/Kaggle "Diabetes 130-US Hospitals for Years 1999-2008" dataset.
